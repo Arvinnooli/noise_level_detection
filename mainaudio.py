@@ -1,48 +1,108 @@
-# Import the necessary libraries
-import pyaudio
-import numpy as np
-import time
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Noise Level Detection</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        text-align: center;
+      }
+      h1 {
+        margin-top: 2em;
+        margin-bottom: 2em;
+      }
+      button {
+        margin-top: 1em;
+        margin-bottom: 1em;
+        padding: 0.5em;
+        font-size: 1em;
+        font-weight: bold;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: #0069d9;
+      }
+      #noise-level {
+        margin-top: 1em;
+        margin-bottom: 2em;
+        padding: 0.5em;
+        font-size: 2em;
+        font-weight: bold;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Noise Level Detection</h1>
+    <button id="start-btn">Start</button>
+    <button id="stop-btn">Stop</button>
+    <p>Current noise level:</p>
+    <textarea id="noise-level" rows="1" cols="20"></textarea>
+    <script>
+      const startBtn = document.getElementById('start-btn');
+      const stopBtn = document.getElementById('stop-btn');
+      const noiseLevelEl = document.getElementById('noise-level');
+      let intervalId;
+      let isStreaming = false;
+      const CHUNK_SIZE = 2048;
+      const SAMPLING_RATE = 44100;
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      let analyser = null;
 
-# Set the chunk size and sampling rate
-chunk_size = 2048
-sampling_rate = 44100
+      function startStreaming() {
+        const stream = navigator.mediaDevices.getUserMedia({audio: true}).then(function(stream) {
+          isStreaming = true;
+          const input = audioContext.createMediaStreamSource(stream);
+          analyser = audioContext.createAnalyser();
+          analyser.fftSize = 2048;
+          input.connect(analyser);
+          const bufferLength = analyser.frequencyBinCount;
+          const dataArray = new Uint8Array(bufferLength);
 
-# Initialize the audio stream
-audio = pyaudio.PyAudio()
-stream = audio.open(format=pyaudio.paInt16,
-                    channels=1,
-                    rate=sampling_rate,
-                    input=True,
-                    frames_per_buffer=chunk_size)
+          intervalId = setInterval(() => {
+            analyser.getByteFrequencyData(dataArray);
+            const rms = calculateRMS(dataArray);
+            const decibelLevel = 20 * Math.log10(rms);
+            noiseLevelEl.value = decibelLevel.toFixed(2) + ' dB';
+          }, 1000);
+        });
+      }
 
-# Define a function to calculate the decibel level
-def calculate_decibel_level(audio_data):
-    # Convert the audio data to a numpy array
-    audio_data = np.fromstring(audio_data, dtype=np.int16)
+      function stopStreaming() {
+        if (intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+        if (analyser) {
+          analyser.disconnect();
+          analyser = null;
+        }
+        isStreaming = false;
+        noiseLevelEl.value = '';
+      }
 
-    # Calculate the RMS (root-mean-square) value of the audio data
-    rms = np.sqrt(np.mean(np.square(audio_data)))
+      function calculateRMS(dataArray) {
+        let rms = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          rms += dataArray[i] * dataArray[i];
+        }
+        rms /= dataArray.length;
+        rms = Math.sqrt(rms);
+        return rms;
+      }
 
-    # Calculate the decibel level using the formula dB = 20 * log10(rms)
-    decibel_level = 20 * np.log10(rms)
+      startBtn.addEventListener('click', () => {
+        if (!isStreaming) {
+          startStreaming();
+        }
+      });
 
-    return decibel_level
-
-# Start the noise level tracking
-while True:
-    # Read the audio data from the stream
-    audio_data = stream.read(chunk_size)
-
-    # Calculate the decibel level of the audio data
-    decibel_level = calculate_decibel_level(audio_data)
-
-    # Print the decibel level to the console
-    print("Current noise level: {:.2f} dB".format(decibel_level))
-
-    # Wait for a second before measuring the noise level again
-    time.sleep(1)
-
-# Close the audio stream
-stream.stop_stream()
-stream.close()
-audio.terminate()
+      stopBtn.addEventListener('click', () => {
+        stopStreaming();
+      });
+    </script>
+  </body>
